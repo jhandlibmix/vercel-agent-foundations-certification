@@ -9,8 +9,13 @@
  * Workshop docs: https://agent-foundations-certification.vercel.app/docs/admin-chat-agent
  */
 
-export const POST = async () =>
-  new Response(
-    "Not implemented yet — finish the chat-agent workshop step to enable this route.",
-    { status: 501 },
-  );
+import { startChat } from "@/lib/chat-stream";
+import { adminChatFlow } from "@/lib/workflows/admin-chat-flow";
+import { isAdminAuthenticated } from "@/lib/admin-auth";
+
+// Start durable work without tying its lifetime to the browser connection.
+export async function POST(request: Request): Promise<Response> {
+  // The admin chat API needs the login cookie too.
+  if (!(await isAdminAuthenticated())) return Response.json({ error: "Admin sign-in required." }, { status: 401 });
+  return startChat(request, adminChatFlow, "admin-chat");
+}

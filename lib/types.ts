@@ -1,11 +1,7 @@
-export type OrderStatus =
-  | "pending"
-  | "paid"
-  | "shipped"
-  | "delivered"
-  | "cancelled";
-export type ReturnStatus = "pending" | "approved" | "rejected" | "processed";
-export type ReturnDecision = "approved" | "rejected" | null;
+// Match the API statuses so return handling uses the right values.
+export type OrderStatus = "paid" | "fulfilled" | "cancelled";
+export type ReturnStatus = "pending" | "processing" | "completed";
+export type ReturnDecision = "approved" | "rejected" | "needs_info" | null;
 
 export const CATEGORY_SLUGS = [
   "bottles",
@@ -226,9 +222,10 @@ export interface Return {
   callback: string | null;
   items: { productId: string; quantity: number }[];
   reason: string;
-  status: "pending" | "approved" | "rejected" | "processed";
+  // Use the same API values when reading return history.
+  status: ReturnStatus;
   scheduledFireAt: string;
-  decision: "approved" | "rejected" | null;
+  decision: ReturnDecision;
   refundAmount: number | null;
   notes: string | null;
   createdAt: string;

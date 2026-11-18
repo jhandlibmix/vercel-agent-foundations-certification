@@ -88,6 +88,12 @@ export class ApiRequestError extends Error {
   }
 }
 
+// Retryable failures: network errors (status 0), 429 and 5xx. Anything that is not an
+// ApiRequestError (for example a Sandbox failure) is also treated as transient.
+export function isTransientApiError(error: unknown): boolean {
+  return !(error instanceof ApiRequestError) || error.status === 0 || error.status === 429 || error.status >= 500;
+}
+
 async function request<T>(
   path: string,
   options: RequestOptions = {},
@@ -250,6 +256,22 @@ export async function getProducts(
 
   const path = qs.toString() ? `/products?${qs}` : "/products";
   return request<Product[]>(path, {
+    next: { revalidate: DEFAULT_REVALIDATE, tags: ["products"] },
+  });
+}
+
+// Chat needs page metadata without changing the storefront's existing reads.
+export async function getProductsPage(
+  params: GetProductsParams = {},
+): Promise<{ data: Product[]; meta: { pagination: PaginationMeta } }> {
+  const qs = new URLSearchParams();
+  if (params.page) qs.set("page", String(params.page));
+  if (params.limit) qs.set("limit", String(params.limit));
+  if (params.category) qs.set("category", params.category);
+  if (params.search) qs.set("search", params.search);
+  if (params.featured !== undefined) qs.set("featured", String(params.featured));
+  const path = qs.toString() ? `/products?${qs}` : "/products";
+  return requestWithMeta<Product[], { pagination: PaginationMeta }>(path, {
     next: { revalidate: DEFAULT_REVALIDATE, tags: ["products"] },
   });
 }

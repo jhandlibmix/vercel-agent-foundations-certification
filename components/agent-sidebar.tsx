@@ -9,7 +9,12 @@ import {
 
 export function AgentSidebar() {
   return (
-    <Sidebar side="right" collapsible="offcanvas">
+    <Sidebar
+      side="right"
+      collapsible="offcanvas"
+      mobileTitle="Ship It Shop Agent"
+      mobileDescription="Chat with the shopping assistant about products and returns."
+    >
       <SidebarHeader>
         <div className="px-2 py-1.5 text-sm font-semibold">
           Ship It Shop Agent

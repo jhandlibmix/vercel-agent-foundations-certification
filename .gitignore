@@ -18,6 +18,8 @@ yarn-error.log*
 
 # env files
 .env*
+# Share the empty template, not the credentials.
+!.env.example
 
 # vercel
 .vercel
@@ -25,3 +27,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+.pi
+ida
+.envrc
+# Workflow compiler cache
+/.swc
+
+# Local copy of the assignment (contains published access values)
+assessment.md
+
+# Local verification scripts and test tooling (kept on disk, not tracked)
+tests

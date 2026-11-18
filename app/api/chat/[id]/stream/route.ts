@@ -6,8 +6,11 @@
  * Workshop docs: https://agent-foundations-certification.vercel.app/docs/workflows
  */
 
-export const POST = async () =>
-  new Response(
-    "Not implemented yet — finish the chat-agent workshop step to enable this route.",
-    { status: 501 },
-  );
+import { resumeChat } from "@/lib/chat-stream";
+import { chatFlow } from "@/lib/workflows/chat-flow";
+
+// Reattach to existing work, or report its terminal status before saving the turn.
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
+  const { id } = await params;
+  return resumeChat(request, id, chatFlow);
+}

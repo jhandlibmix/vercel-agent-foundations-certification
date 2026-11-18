@@ -88,6 +88,8 @@ export const ConversationScrollButton = ({
           "absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full dark:bg-background dark:hover:bg-muted",
           className
         )}
+        // Both chats need a labelled control when new messages are below the viewport.
+        aria-label="Scroll to latest message"
         onClick={handleScrollToBottom}
         size="icon"
         type="button"

@@ -2,22 +2,24 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { ADMIN_COOKIE_NAME, ADMIN_PASSWORD } from "./admin-auth";
+import { ADMIN_COOKIE_NAME, createAdminToken, isAdminPassword } from "./admin-auth";
 
 const COOKIE_MAX_AGE = 60 * 60 * 24; // 1 day
 
 export async function loginAction(formData: FormData): Promise<void> {
   const password = formData.get("password");
-  if (typeof password !== "string" || password !== ADMIN_PASSWORD) {
+  if (typeof password !== "string" || !isAdminPassword(password)) {
     redirect("/admin/login?error=1");
   }
   const store = await cookies();
-  store.set(ADMIN_COOKIE_NAME, ADMIN_PASSWORD, {
+  // Keep the password on the server, not in the cookie.
+  store.set(ADMIN_COOKIE_NAME, createAdminToken(), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     maxAge: COOKIE_MAX_AGE,
-    path: "/admin",
+    // The admin chat API needs the login cookie too.
+    path: "/",
   });
   redirect("/admin");
 }

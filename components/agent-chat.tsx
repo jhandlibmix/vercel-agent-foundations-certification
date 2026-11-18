@@ -10,7 +10,10 @@
  *
  * Workshop docs: https://agent-foundations-certification.vercel.app/docs/chat-agent
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { ShoppingToolResult } from "@/components/shopping-tool-result";
+import { ChatTranscript } from "@/components/chat-transcript";
+import { SHOPPING_CHAT_KEY, loadChatSnapshot, useDurableChat, type ChatSnapshot } from "@/hooks/use-durable-chat";
 import {
   Conversation,
   ConversationContent,
@@ -26,15 +29,38 @@ import {
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
 
-export function AgentChat() {
-  const [input, setInput] = useState("");
+export function AgentChat(): React.JSX.Element {
+  const [initial, setInitial] = useState<ChatSnapshot | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (message: PromptInputMessage) => {};
+  useEffect(() => {
+    loadChatSnapshot(SHOPPING_CHAT_KEY).then(setInitial, () => {
+      setError("Could not restore the conversation. Check that browser storage is available, then refresh.");
+    });
+  }, []);
+
+  if (error) return <p role="alert" className="p-3 text-sm">{error}</p>;
+  if (!initial) return <p role="status" className="p-3 text-sm">Loading conversation…</p>;
+  return <ShoppingConversation initial={initial} />;
+}
+
+function ShoppingConversation({ initial }: { initial: ChatSnapshot }): React.JSX.Element {
+  const [input, setInput] = useState("");
+  const chat = useDurableChat("/api/chat", initial, SHOPPING_CHAT_KEY);
+
+  const handleSubmit = async (message: PromptInputMessage): Promise<void> => {
+    if (!message.text.trim() || chat.busy) return;
+    setInput("");
+    await chat.send(message.text);
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Conversation className="flex-1">
-        <ConversationContent>{null}</ConversationContent>
+        <ConversationContent>
+          {/* Keep lookup progress and product results beside the assistant's response. */}
+          <ChatTranscript messages={chat.messages} busy={chat.busy} busyId="shopping-chat-busy" error={chat.error} ToolResult={ShoppingToolResult} />
+        </ConversationContent>
         <ConversationScrollButton />
       </Conversation>
 
@@ -45,11 +71,13 @@ export function AgentChat() {
               value={input}
               onChange={(e) => setInput(e.currentTarget.value)}
               placeholder="Ask the agent"
+              aria-label="Ask the agent"
+              aria-describedby={chat.busy ? "shopping-chat-busy" : undefined}
             />
           </PromptInputBody>
           <PromptInputFooter>
             <PromptInputTools />
-            <PromptInputSubmit status="ready" disabled={!input.trim()} />
+            <PromptInputSubmit status={chat.status} disabled={chat.busy || !input.trim()} />
           </PromptInputFooter>
         </PromptInput>
       </div>
