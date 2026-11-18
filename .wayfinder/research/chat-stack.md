@@ -1,4 +1,6 @@
-# Chat stack evidence — STATUS: COMPLETE for scope (see Unresolved)
+# Chat stack evidence — STATUS: durable-first follow-up complete; open items under Unresolved
+
+> **Correction (supersedes earlier minimum path):** both assessment agents MUST be durable (`WorkflowAgent`) from first implementation. The `ToolLoopAgent` + `createAgentUIStreamResponse` material below is API background only, NOT an intermediate build stage. Do not wire request abort to cancel durable work. Existing admin gate and server-side secrets remain requirements only (no separate security ticket).
 
 Scope: issue `research-chat-stack`. Local facts below observed in main checkout `node_modules` (not installed/changed by research). No env/credential files read.
 
@@ -29,7 +31,7 @@ Scope: issue `research-chat-stack`. Local facts below observed in main checkout 
 - `ToolLoopAgent`, `createAgentUIStreamResponse`, `InferAgentUIMessage`, `tool`, `isStepCount` (alias `stepCountIs`), `DefaultChatTransport`, `useChat` all exist in installed versions [S1][S2]. `isStepCount(20)` is the ToolLoopAgent default [S1].
 - Gateway is bundled: `ai` depends on `@ai-sdk/gateway`; plain `"creator/model"` strings route through Gateway; `gateway`/`createGateway` are exported from `ai` [S4]. No provider package needed. The `@ai-sdk/gateway` import itself is not top-level resolvable under pnpm (fact) — import `gateway`/`createGateway` from `ai` only.
 
-### Server agent + route (minimum path)
+### ToolLoopAgent route — API BACKGROUND ONLY (not a build stage)
 ```ts
 // lib/agent.ts (shopping; admin gets a separate agent/file)
 import { ToolLoopAgent, tool, isStepCount, type InferAgentUIMessage } from "ai";
@@ -77,11 +79,36 @@ const handleSubmit = (m: PromptInputMessage) => { if (!m.text?.trim()) return; s
 - Auth order: `apiKey` option → `AI_GATEWAY_API_KEY` env → Vercel OIDC token (auto on Vercel deployments; locally via `vercel env pull`, expires 12h, or `vercel dev`). If an API key is present it is always used, even if invalid [S4]. `@vercel/oidc` is already a top-level dependency.
 - Required config is server-side env only (no `NEXT_PUBLIC_`): either `AI_GATEWAY_API_KEY` or an OIDC token. Credential values not read/verified here.
 
-### Workflow seam (fact [S3][S7]; decision deferred to durable-execution ticket)
-- `ToolLoopAgent` is in-memory; not durable [S3]. Durable path in v7 docs is `WorkflowAgent` from `@ai-sdk/workflow` (NOT in `ai`; `DurableAgent` from `workflow/ai` is the old name, Context7 shows migration diff) [S2][S3].
-- Registry: `@ai-sdk/workflow@2.0.108` peers `workflow ^5.1.0`, `zod ^3.25.76 || ^4.1.8`; `workflow@5.6.1` latest [S7]. Neither installed. `@ai-sdk/workflow`'s peer on `ai` was not checked → compatibility with `ai@7.0.2` is UNVERIFIED.
-- Seam differences from the minimal path (all from [S3]): agent runs in a `'use workflow'` function with `convertToModelMessages(messages)` and `writable: getWritable<ModelCallStreamPart>()`; route does `start(chat,[messages])` and returns `createUIMessageStreamResponse({ stream: run.readable.pipeThrough(createModelCallToUIChunkTransform()), headers: {"x-workflow-run-id": run.runId} })`; tool `execute` bodies are `'use step'` functions (default 3 retries); `stream()` has no default step limit (set `stopWhen: isStepCount(n)`); context must be serializable; sandbox is a live handle (reattach inside steps). Client reconnect uses `WorkflowChatTransport` from `@ai-sdk/workflow/client` with `GET {api}/{runId}/stream?startIndex=` route; requires `x-workflow-run-id` header. Typed tool UI messages: `InferAgentUIMessage` is defined for `ToolLoopAgent`; its use with `WorkflowAgent` is UNVERIFIED (could type `useChat<UIMessage<unknown, never, InferUITools<typeof tools>>>` from the shared tool set — inference).
-- Implication: build the shells/tools/typed UI against shared `tools` objects so swapping `ToolLoopAgent` → `WorkflowAgent` changes only route + agent file. Next step is not required if the durable ticket decides to go straight to WorkflowAgent.
+### Durable seam: `@ai-sdk/workflow@2.0.108` (verified 2026 registry + tarball source; no install/scripts run)
+Sources: [W1] `https://registry.npmjs.org/@ai-sdk/workflow/2.0.108` (metadata); [W2] tarball `workflow-2.0.108.tgz` read-only extract to /tmp: `package.json`, `dist/index.d.ts`, `dist/workflow-chat-transport-*.d.ts`, `src/workflow-agent.ts`, README; [W3] https://ai-sdk.dev/docs/agents/workflow-agent (fetched, v7 latest; first ~15k chars + tail read, middle truncated); [W4] `ai@7.0.2`, `ai@7.0.176`, `@ai-sdk/react@latest` registry metadata; [W5] https://github.com/vercel/ai `content/docs/04-ai-sdk-ui/03-chatbot-message-persistence.mdx` (raw, main).
+
+**Package metadata (fact [W1][W2]):** `latest` = 2.0.108 (published 2026-11-17). Repo `vercel/ai`, `packages/workflow`. Exports `.`, `./client`, `./video`. `peerDependencies`: `workflow ^5.1.0`, `zod ^3.25.76 || ^4.1.8` (zod 3.25.76 OK). **`dependencies`: `ai` EXACT `7.0.176`**, `ajv ^8.20.0`, `@ai-sdk/provider 4.0.39`, `@ai-sdk/provider-utils 5.0.82`. `ai` is a hard dependency, not a peer.
+
+**Compatibility with `ai@7.0.2` (fact + inference):**
+- NOT compatible as a single copy: `ai@7.0.2` (deps gateway 4.0.2, provider 4.0.0, provider-utils 5.0.0 [W4]) ≠ the pinned `ai@7.0.176`. Installing `@ai-sdk/workflow@2.0.108` beside `ai@7.0.2` yields a second nested `ai` copy (inference from pnpm semantics; nothing installed). Runtime/type mismatch across copies (UIMessage, tool, stream types) is UNVERIFIED.
+- Aligned set (fact from metadata [W4]): `ai@7.0.176` depends on gateway 4.0.149/provider 4.0.39/provider-utils 5.0.82; latest `@ai-sdk/react@4.0.180` pins `ai 7.0.176`, same provider-utils, peer react `^18 || ~19.0.1 || ~19.1.2 || ^19.2.1` (project react 19.2.4 OK). Recommendation: when implementing, bump `ai` → 7.0.176 and `@ai-sdk/react` → 4.0.180 together with adding `@ai-sdk/workflow@2.0.108` and `workflow@^5.1.0` (latest seen 5.6.1) so one `ai` copy exists. `ai ^7.0.2` caret already allows 7.0.176; the lockfile just needs updating. Whether `@ai-sdk/react@4.0.3` (pins ai 7.0.2) works with `WorkflowChatTransport` is UNVERIFIED — avoid by aligning.
+- `ai` 7.0.176 `convertToModelMessages`, `validateUIMessages`, `createUIMessageStreamResponse`, `isStepCount`, `tool`, `UIMessage`, `InferUITools` are imported by the workflow package/docs from `ai` (fact [W2][W3]); their presence in exactly 7.0.176 was not separately diffed (metadata-level check only).
+- Next.js integration of the `workflow` package (config wrapper, route/bundling constraints for `'use workflow'`/`'use step'`) NOT verified here → Workflow ticket.
+
+**Durable API shape (fact [W3][W2]):** `new WorkflowAgent({ model, instructions, tools })`; `'use workflow'` function calls `await convertToModelMessages(uiMessages)` then `agent.stream({ messages, writable: getWritable<ModelCallStreamPart>(), stopWhen })`; route `start(chat,[messages])` → `createUIMessageStreamResponse({ stream: run.readable.pipeThrough(createModelCallToUIChunkTransform()), headers:{'x-workflow-run-id': run.runId} })`. Tool `execute` = `'use step'` function (3 retries default). `stream()` has no default step limit — set `stopWhen: isStepCount(n)` [W3]. `WorkflowAgent` does NOT implement `Agent`, so `createAgentUIStreamResponse`/`createAgentUIStream` cannot take it [W3]. Reconnect (optional for requirements; owned by Workflow ticket): `WorkflowChatTransport` from `@ai-sdk/workflow/client` needs `x-workflow-run-id` header + GET `{api}/{runId}/stream?startIndex=` [W3].
+
+**UI message typing (fact [W2][W3]):** `dist/index.d.ts` exports `InferWorkflowAgentTools<A>` and
+`type InferWorkflowAgentUIMessage<A, META = unknown> = UIMessage<META, never, InferUITools<InferWorkflowAgentTools<A>>>`. Docs show `export type MyAgentUIMessage = InferWorkflowAgentUIMessage<typeof myAgent>`. Use this — NOT `InferAgentUIMessage` (ToolLoopAgent-only) — then `useChat<MyAgentUIMessage>({ transport })`. This resolves the earlier UNVERIFIED item. Caveat: the agent instance must be a value at module scope for `typeof`; docs construct the agent inside the `'use workflow'` function, so the Workflow ticket must decide how the typed agent/tools definition is shared with the client type import without pulling server code into the client bundle (use `import type` only; bundle behavior UNVERIFIED). No shared-tools abstraction for swapping is needed — the durable API is the only API.
+- `WorkflowChatTransport<UI_MESSAGE extends UIMessage>` is generic over the UI message type [W2].
+
+**Local component typing (observed in `components/ai-elements/prompt-input.tsx`):**
+- `PromptInputMessage` (line ~484): `interface { text: string; files: FileUIPart[] }`. `PromptInput onSubmit(message: PromptInputMessage, event: FormEvent<HTMLFormElement>) => void | Promise<void>`.
+- `PromptInputSubmitProps = ComponentProps<typeof InputGroupButton> & { status?: ChatStatus; onStop?: () => void }`; `ChatStatus` imported from `ai`, defined in ai 7.0.2 d.ts as `'submitted' | 'streaming' | 'ready' | 'error'` — exactly `useChat().status`. Submit shows spinner for `submitted`, square + `onStop` button for `streaming` only if `onStop` is passed; otherwise renders `type="submit"` (verified in source). Resolves earlier unverified item. Not passing `onStop` avoids exposing a stop control that implies cancelling durable work. Whether `useChat().stop()` with `WorkflowChatTransport` cancels the run: UNVERIFIED (the transport's abort handling not read).
+- Submit handler: `sendMessage({ text: message.text })` (files ignored unless a requirement needs them).
+
+**Request abort / cancellation (fact [W2][W3]):** `WorkflowAgent` accepts `abortSignal` (constructor or per `stream()` call) and `timeout`; the docs' route/workflow examples pass neither and do not forward `request.signal`. Do NOT pass `req.signal` into `start()` args (not serializable as run input) or into the agent: a closed browser request must not cancel the durable run. Explicit run cancellation (if ever required) is a Workflow ticket decision; not researched.
+
+**Message validation at the durable boundary (fact [W5]; inference for durable placement):**
+- AI SDK persistence docs: "When processing messages on the server that contain tool calls, custom metadata, or data parts, you should validate them using `validateUIMessages` before sending them to the model", passing `{ messages, tools, dataSchemas, metadataSchema }` and then `convertToModelMessages(validatedMessages)` [W5].
+- The `WorkflowAgent` docs' route example does `const { messages }: { messages: UIMessage[] } = await request.json()` with a TS annotation only — no runtime validation [W3]. That is a type assertion, not validation. `createAgentUIStreamResponse` (non-durable) takes `uiMessages: unknown[]` and is the documented validating path [S1]; the workflow route has no equivalent.
+- Recommendation: in the POST route, before `start()`, call `validateUIMessages({ messages: body.messages, tools })` (add `safeValidateUIMessages` for a 400 response on failure) and pass only validated, serializable messages to `start()`. Alternative: validate at the top of the `'use workflow'` function before `convertToModelMessages`; a failure there creates a failed run instead of an HTTP 400. UNVERIFIED: whether the route can import the same `tools` definition (steps with `'use step'`) outside the workflow bundle; if not, validate with schema-only tool stubs or inside the workflow. Also verify (Workflow ticket) that `UIMessage[]` args are serializable by `start()`.
+
+**Model (documented examples, not a mandatory human decision):** `WorkflowAgent` docs use Gateway strings, e.g. `'anthropic/claude-sonnet-5.5'` ([W3] model resolution section). Recommend that documented string as the default (assumes the parent's statement that the model supports tools via Gateway; I did not query the live Gateway model list or Gateway availability). No provider survey.
 
 ## Version traps (fact unless noted)
 1. v7 `ai` docs/examples differ from v5/v6: `stepCountIs` is an alias of `isStepCount`; agent streaming helper `toUIMessageStream({stream: result.stream})` + `createUIMessageStreamResponse` appear in v7 docs, while many older examples use `result.toUIMessageStreamResponse()` [S2][S5]. Stick to `createAgentUIStreamResponse` for ToolLoopAgent.
@@ -93,13 +120,26 @@ const handleSubmit = (m: PromptInputMessage) => { if (!m.text?.trim()) return; s
 7. Gateway API key wins over OIDC even if invalid [S4].
 8. `proxy.ts` matcher excludes `/api/admin/*` (observed) — flag for security ticket.
 
-## Recommendation (minimum supported path)
-1. Per agent: `ToolLoopAgent` (`ai`) with Gateway string model, zod-3 `tool({ inputSchema, execute })`, `InferAgentUIMessage` type. 2. Route: `createAgentUIStreamResponse({ agent, uiMessages: messages, abortSignal })`. 3. Client: `useChat<AgentUIMessage>({ transport: new DefaultChatTransport({ api }) })`, `sendMessage({text})`, render `parts` with existing `Message`/`MessageResponse`; typed tool parts → product components. 4. Credentials: server-side `AI_GATEWAY_API_KEY` or OIDC only. 5. Durability: layer `WorkflowAgent` per durable ticket without changing tool schemas/UI.
+## Recommendation (durable-first; supersedes earlier minimum path)
+1. Both agents: `WorkflowAgent` (`@ai-sdk/workflow`) inside a `'use workflow'` function; tools via `tool({ inputSchema: z (zod 3), execute: <'use step' fn> })`; `stopWhen: isStepCount(n)` because `stream()` has no default limit; Gateway string model (default doc example above); `writable: getWritable<ModelCallStreamPart>()`.
+2. Route (`/api/chat`, `/api/admin/chat`): validate body with `validateUIMessages`/`safeValidateUIMessages`, `start(workflow,[validated])`, return `createUIMessageStreamResponse({ stream: run.readable.pipeThrough(createModelCallToUIChunkTransform()), headers:{'x-workflow-run-id': run.runId} })`. No `request.signal` wiring.
+3. Client: `useChat<InferWorkflowAgentUIMessage<typeof agent>>({ transport })` where transport is `DefaultChatTransport({api})` or `WorkflowChatTransport({api})` (reconnect needs the GET stream route; choose in Workflow ticket); submit `sendMessage({ text: message.text })`; pass `status` from `useChat` to `PromptInputSubmit`; omit `onStop`.
+4. Versions: align `ai` 7.0.176 + `@ai-sdk/react` 4.0.180 + `@ai-sdk/workflow` 2.0.108 + `workflow ^5.1.0` (single `ai` copy).
+5. Credentials/admin gate: existing requirements only; server-side `AI_GATEWAY_API_KEY` or OIDC; no secrets in tool outputs.
+
+## Remaining handoff to detailed Workflow ticket
+- Next.js build/config integration for `workflow` (not verified here), workflow file location and bundling of tools/`'use step'` functions.
+- How the route imports tool definitions for validation and how client imports the inferred type without server code.
+- Reconnect/resume choice (`WorkflowChatTransport` + GET route vs plain `DefaultChatTransport`) per the requirements' durability wording (not re-read here).
+- `stop()` semantics with `WorkflowChatTransport`; explicit run cancellation (not wired to request abort).
+- Admin `bash` tool/sandbox live-handle handling: docs state context must be serializable and sandbox is a live handle to reattach inside steps (from earlier [S3] read; not re-verified).
+- Whether `proxy.ts` matcher covering `/admin/:path*` but not `/api/admin/*` satisfies the existing admin-gate requirement: observed fact only; check against `.wayfinder/requirements.md` (no new security ticket).
 
 ## Unresolved
-- `@ai-sdk/workflow@2.0.108` peer range on `ai` and compatibility with `ai@7.0.2` (not checked); `WorkflowAgent` typed-UI inference.
-- Whether `createAgentUIStreamResponse` internally validates `uiMessages` against tool schemas (not verified; `validateUIMessages`/`safeValidateUIMessages` exist in 7.0.2 [S1]).
-- Exact `PromptInputSubmit` `status` prop type and `PromptInputMessage` shape in local component (file not read in full).
-- `useChat({ resume })` non-Workflow resume semantics (server GET endpoint) not researched — Workflow ticket owns recovery.
-- Model id choice (human decision); no provider survey done.
-- Gateway doc page text was truncated; auth section read fully, later sections not needed.
+- Type/runtime behavior of a duplicate `ai` copy (if `ai@7.0.2` is kept with `@ai-sdk/workflow@2.0.108`): unverified; avoided by alignment.
+- Exact export parity of `ai@7.0.176` vs 7.0.2 (only metadata compared).
+- `@ai-sdk/react@4.0.3` + `WorkflowChatTransport` compatibility: unverified.
+- Middle of the WorkflowAgent docs page was truncated by the fetch tool (~15k chars); sections on sandbox/tool approval/runtimeContext not re-read this pass.
+- Validation placement feasibility (route vs workflow) and `start()` serialization of `UIMessage[]`: unverified.
+- Live Gateway availability/tool support of the documented example model: not queried.
+- Gateway doc page text was truncated; auth section read fully earlier.
